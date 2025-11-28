@@ -1,0 +1,1003 @@
+\documentclass{beamer}
+
+% Theme choice
+\usetheme{Madrid}
+
+% Optional packages
+\usepackage{graphicx} % For including images
+\usepackage{amsmath}  % For math symbols and formulas
+\usepackage{hyperref} % For hyperlinks
+
+\title[Embedded architectures (RISC-V)]{Embedded architectures (RISC-V)}
+\author{Obolenskiy Arseniy, Nesterov Alexander}
+\institute{ITLab}
+
+\date{\today}
+
+% Redefine the footline to display both the short title and the org name
+\setbeamertemplate{footline}{
+  \leavevmode%
+  \hbox{%
+    \begin{beamercolorbox}[wd=.45\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,center]{author in head/foot}%
+        \usebeamerfont{author in head/foot}\insertshortinstitute% Displays the university name
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[wd=.45\paperwidth,ht=2.5ex,dp=1ex,leftskip=1em,center]{author in head/foot}%
+      \usebeamerfont{author in head/foot}\insertshorttitle% Displays the short title
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[wd=.1\paperwidth,ht=2.5ex,dp=1ex,rightskip=1em,center]{author in head/foot}%
+      \usebeamerfont{author in head/foot}\insertframenumber{} / \inserttotalframenumber%
+    \end{beamercolorbox}}%
+  \vskip0pt%
+}
+
+\AtBeginSection[]{
+  \begin{frame}
+    \centering
+    \Huge\insertsection%
+  \end{frame}
+}
+
+\begin{document}
+
+\begin{frame}
+    \titlepage%
+\end{frame}
+
+\begin{frame}{Contents}
+    \tableofcontents
+\end{frame}
+
+\section{Introduction}
+
+\begin{frame}{Typical Embedded SoC Pattern}
+  \begin{columns}[T]
+    \column{0.55\textwidth}
+      \begin{itemize}
+        \item \textbf{CPU cores}
+          \begin{itemize}
+            \item General purpose control and scalar code
+            \item Run operating system and framework runtime
+          \end{itemize}
+        \item \textbf{Vector unit or SIMD}
+          \begin{itemize}
+            \item Wide datapaths for data parallel operations
+            \item Good match for MatMul, convolution and elementwise ops
+          \end{itemize}
+        \item \textbf{Optional AI accelerator}
+          \begin{itemize}
+            \item NPU or tensor engine for specific AI workloads
+            \item Offload heavy inner loops
+          \end{itemize}
+        \item \textbf{Memory hierarchy}
+          \begin{itemize}
+            \item Caches and on chip SRAMs close to cores
+            \item External DRAM as main memory
+          \end{itemize}
+      \end{itemize}
+
+    \column{0.45\textwidth}
+      \centering
+      \small
+      \begin{tabular}{c}
+        \fbox{CPU core 0} \quad \fbox{CPU core 1} \\
+        \\
+        \fbox{Vector unit / SIMD} \\
+        \\
+        \fbox{Optional NPU / tensor engine} \\
+        \\
+        \fbox{L1 caches} \\
+        $\downarrow$ \\
+        \fbox{L2 cache / on chip SRAM} \\
+        $\downarrow$ \\
+        \fbox{External DRAM} \\
+      \end{tabular}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{What is RISC-V?}
+  \begin{itemize}
+    \item \textbf{Open, modular instruction set architecture (ISA)}
+      \begin{itemize}
+        \item Specification is an open standard, not tied to a single vendor
+        \item Anyone can implement compatible processors
+      \end{itemize}
+    \item \textbf{ISA vs implementation}
+      \begin{itemize}
+        \item ISA defines programmer visible instructions and registers
+        \item Microarchitecture defines how a core is built (pipeline, caches, issue width and so on)
+      \end{itemize}
+    \item Key properties for this project:
+      \begin{itemize}
+        \item Open standard, no proprietary licensing barriers
+        \item Extensible via optional standard and custom extensions
+        \item Rapidly growing ecosystem of cores, toolchains and operating systems
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Base ISAs: RV32 and RV64}
+  \begin{itemize}
+    \item \textbf{Base integer ISAs}
+      \begin{itemize}
+        \item RV32I: 32 bit addresses and integer registers
+        \item RV64I: 64 bit addresses and integer registers
+      \end{itemize}
+    \item \textbf{Load store design}
+      \begin{itemize}
+        \item Only load and store instructions access memory
+        \item Arithmetic and logic operate on registers only
+      \end{itemize}
+    \item \textbf{General purpose registers}
+      \begin{itemize}
+        \item 32 integer registers x0 to x31
+        \item x0 is hard wired to zero
+      \end{itemize}
+  \end{itemize}
+
+  \vspace{0.5em}
+  \centering
+  \small
+  \begin{tabular}{ll}
+    \textbf{Name} & \textbf{Role} \\
+    \hline
+    x0  & zero (constant 0) \\
+    x1  & ra (return address) \\
+    x2  & sp (stack pointer) \\
+    x3  & gp (global pointer) \\
+    x4  & tp (thread pointer) \\
+    x5 x7 & t0 t2 (temporaries) \\
+    x8 x9 & s0 s1 (saved registers) \\
+    x10 x17 & a0 a7 (function arguments) \\
+    \vdots & \vdots \\
+    x28 x31 & t3 t6 (more temporaries) \\
+  \end{tabular}
+\end{frame}
+
+% Slide 9 – Extension landscape
+\begin{frame}{Extension Landscape}
+  \begin{itemize}
+    \item Base integer ISA is intentionally small
+    \item Standard extensions add functionality:
+      \begin{itemize}
+        \item M: integer multiplication and division
+        \item A: atomic memory operations
+        \item F and D: single and double precision floating point
+        \item C: compressed 16 bit encodings for code size reduction
+        \item V: vector extension for data parallel operations
+      \end{itemize}
+    \item For AI workloads, especially important:
+      \begin{itemize}
+        \item F D for floating point kernels
+        \item V for high throughput vector math
+        \item A for multithreaded synchronization
+      \end{itemize}
+  \end{itemize}
+  Think of the ISA as two layers: start from the base, then add extension blocks as needed.
+
+  \vspace{0.5em}
+  \centering
+  \small
+  \begin{tabular}{c}
+    \fbox{Base ISA (RV64I)} \\
+    \\
+    \fbox{M} \quad \fbox{A} \quad \fbox{F D} \quad \fbox{C} \quad \fbox{V} \\
+    \\
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Example ISA Strings}
+  \begin{itemize}
+    \item Toolchains encode ISA features in a string:
+      \begin{itemize}
+        \item \texttt{rv64gc}:
+          \begin{itemize}
+            \item RV64I base
+            \item G shorthand for common extensions (IMAFD)
+            \item C compressed extension
+          \end{itemize}
+        \item \texttt{rv64gcv}:
+          \begin{itemize}
+            \item Same as above, plus V vector extension
+          \end{itemize}
+      \end{itemize}
+    \item Implications:
+      \begin{itemize}
+        \item \textbf{Available instructions}: code can use vector ops only if V is present
+        \item \textbf{Binary compatibility}: binaries built for V will not run on cores without V
+        \item \textbf{Compiler flags}:
+          \begin{itemize}
+            \item \texttt{-march=rv64gc} for baseline
+            \item \texttt{-march=rv64gcv} to enable RVV instructions
+          \end{itemize}
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\section{Modern hardware architectures basics}
+\begin{frame}{Pipeline Basics}
+  \begin{itemize}
+    \item Classical in order 5 stage pipeline:
+      \begin{itemize}
+        \item IF: instruction fetch
+        \item ID: instruction decode and register read
+        \item EX: execute or address calculation
+        \item MEM: data memory access
+        \item WB: write back to registers
+      \end{itemize}
+  \end{itemize}
+
+  \vspace{0.5em}
+  \centering
+  \small
+  IF $\rightarrow$ ID $\rightarrow$ EX $\rightarrow$ MEM $\rightarrow$ WB
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item Hazards to be aware of:
+      \begin{itemize}
+        \item \textbf{Data hazards}: consumers before producers finish
+        \item \textbf{Control hazards}: branches and jumps changing control flow
+        \item \textbf{Structural hazards}: contention for shared hardware resources
+      \end{itemize}
+    \item Real cores deepen and widen this pipeline for higher performance
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Memory Hierarchy}
+  \begin{itemize}
+    \item Typical hierarchy:
+      \begin{itemize}
+        \item L1 instruction and data caches: very fast, very small
+        \item L2 cache: slower but larger, often shared by cores
+        \item Main memory (DRAM): large but high latency and limited bandwidth
+      \end{itemize}
+    \item \textbf{Latency vs bandwidth}
+      \begin{itemize}
+        \item Latency: time to access a single word
+        \item Bandwidth: sustained rate of data transfer
+      \end{itemize}
+    \item Why cache misses are bad for AI:
+      \begin{itemize}
+        \item Vector units can consume data much faster than DRAM can supply it
+        \item Poor locality leads to pipeline stalls and underutilized compute
+        \item Tiling and data layout are crucial to keep hot working sets in caches
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Forms of Parallelism}
+  \begin{itemize}
+    \item \textbf{Instruction level parallelism ILP}
+      \begin{itemize}
+        \item Superscalar issue and out of order execution
+        \item Hardware extracts parallelism between independent scalar instructions
+      \end{itemize}
+    \item \textbf{Data level parallelism DLP}
+      \begin{itemize}
+        \item SIMD and vector units operate on many data elements per instruction
+        \item Natural fit for arrays, matrices and tensors
+      \end{itemize}
+    \item \textbf{Thread level parallelism TLP}
+      \begin{itemize}
+        \item Multicore and multithreading
+        \item Use OpenMP or similar to distribute work across cores
+      \end{itemize}
+  \end{itemize}
+
+  \vspace{0.5em}
+  \centering
+  \small
+  \begin{tabular}{c}
+    \fbox{TLP: many cores}\\
+    \\
+    \fbox{DLP: wide vectors}\\
+    \\
+    \fbox{ILP: multiple independent scalar ops}\\
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Why Vectors for AI}
+  \begin{itemize}
+    \item Many AI kernels are dominated by:
+      \begin{itemize}
+        \item Matrix multiplication MatMul
+        \item Convolutions
+      \end{itemize}
+    \item These can be expressed as large numbers of independent multiply accumulate operations
+      \begin{itemize}
+        \item Each output element is a dot product of input and weight vectors
+      \end{itemize}
+    \item Vector units can:
+      \begin{itemize}
+        \item Perform many MACs per cycle
+        \item Apply the same operation to many elements in parallel
+        \item Improve energy efficiency vs scalar execution
+      \end{itemize}
+    \item Goal: map inner loops of MatMul and Conv onto vector instructions
+  \end{itemize}
+\end{frame}
+
+\section{RVV}
+\begin{frame}{RISC-V Vector Extension RVV Basics}
+  \begin{itemize}
+    \item \textbf{Scalable vector design}
+      \begin{itemize}
+        \item Vector length VLEN is implementation defined
+        \item Same binary can run on cores with different VLEN
+      \end{itemize}
+    \item \textbf{Vector registers}
+      \begin{itemize}
+        \item Architectural vector registers v0 to v31
+        \item Each holds multiple elements of configurable width
+      \end{itemize}
+    \item \textbf{Key notions}
+      \begin{itemize}
+        \item SEW: selected element width for an operation
+        \item VL: active vector length selected per loop iteration
+        \item Programmer or compiler chooses VL based on remaining work
+      \end{itemize}
+    \item Result: vector code is length agnostic and portable across different VLEN values
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Vectorized Loop Example}
+  \begin{itemize}
+    \item Scalar dot product:
+  \end{itemize}
+  \vspace{0.25em}
+\begin{verbatim}
+float dot_scalar(const float *a, const float *b, int n) {
+    float sum = 0.0f;
+    for (int i = 0; i < n; ++i) {
+        sum += a[i] * b[i];
+    }
+    return sum;
+}
+\end{verbatim}
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item RVV style length agnostic loop:
+  \end{itemize}
+  \vspace{0.25em}
+\begin{verbatim}
+float dot_rvv(const float *a, const float *b, int n) {
+    float sum = 0.0f;
+    int i = 0;
+    while (i < n) {
+        size_t vl = vsetvl_e32m1(n - i);   // choose VL for remaining elements
+        vfloat32m1_t va = vle32_v_f32m1(a + i, vl);
+        vfloat32m1_t vb = vle32_v_f32m1(b + i, vl);
+        vfloat32m1_t vm = vfmul_vv_f32m1(va, vb, vl);
+        sum += vredsum_vs_f32m1_f32m1(vm, vm, sum, vl);
+        i += vl;
+    }
+    return sum;
+}
+\end{verbatim}
+
+  \vspace{0.25em}
+  \begin{itemize}
+    \item No hard coded vector width: the same loop adapts to any VLEN
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Beyond RVV: Accelerators}
+  \begin{columns}[T]
+    \column{0.55\textwidth}
+      \begin{itemize}
+        \item Options for higher AI performance:
+          \begin{itemize}
+            \item Custom tensor instructions within the CPU pipeline
+            \item Dedicated NPU cores on the SoC
+          \end{itemize}
+        \item Trade offs:
+          \begin{itemize}
+            \item RVV:
+              \begin{itemize}
+                \item Part of the standard ISA
+                \item Portable across many cores
+                \item Flexible for varied workloads
+              \end{itemize}
+            \item Dedicated accelerators:
+              \begin{itemize}
+                \item Higher peak throughput per watt
+                \item Often limited to specific layer types or data layouts
+              \end{itemize}
+          \end{itemize}
+      \end{itemize}
+    \column{0.45\textwidth}
+      \centering
+      \small
+      \begin{tabular}{c}
+        \fbox{CPU with RVV}\\
+        General vector code, portable \\
+        \\
+        \fbox{NPU or tensor engine}\\
+        Fixed function kernels, higher peak\\
+      \end{tabular}
+  \end{columns}
+\end{frame}
+
+\section{AI workloads and their characteristics}
+\begin{frame}{Core AI Kernels}
+  \begin{itemize}
+    \item Most deep learning workloads reduce to a small set of kernels:
+  \end{itemize}
+
+  \vspace{0.5em}
+  \centering
+  \small
+  \begin{tabular}{lll}
+    \textbf{Kernel} & \textbf{Characteristics} & \textbf{Notes} \\
+    \hline
+    MatMul & High compute intensity & Excellent for vectorization and tiling \\
+    Conv & Similar to MatMul & Extra spatial reuse in input feature maps \\
+    Elementwise & Low compute per byte & Often memory bound \\
+    Softmax and reductions & Mixed & Some compute, but reduction patterns \\
+  \end{tabular}
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item Optimizing these few kernels has outsized impact on end to end model performance
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Data Layout and Reuse}
+  \begin{itemize}
+    \item Convolutional layers depend heavily on data layout:
+      \begin{itemize}
+        \item NCHW: batch, channels, height, width
+        \item NHWC: batch, height, width, channels
+      \end{itemize}
+    \item Different layouts interact differently with vector units and caches:
+      \begin{itemize}
+        \item Contiguous channels vs contiguous spatial pixels
+        \item How well a layout matches vector length and cache line size
+      \end{itemize}
+    \item \textbf{Tiling and blocking}:
+      \begin{itemize}
+        \item Process sub tiles of input, weights and output that fit into L1 or L2
+        \item Increase reuse of data brought into fast memory
+        \item Reduce DRAM traffic and cache thrashing
+      \end{itemize}
+  \end{itemize}
+
+  \vspace{0.5em}
+  \centering
+  \small
+  \begin{tabular}{l|l}
+    NCHW & N, C, H, W in memory order \\
+    NHWC & N, H, W, C in memory order \\
+  \end{tabular}
+
+\end{frame}
+
+\begin{frame}{Roofline Model Intuition}
+  \begin{itemize}
+    \item Roofline model links:
+      \begin{itemize}
+        \item Peak compute performance (FLOPs per second)
+        \item Peak memory bandwidth (Bytes per second)
+      \end{itemize}
+    \item Each kernel has a point on the plot:
+      \begin{itemize}
+        \item X axis: operational intensity FLOPs per Byte
+        \item Y axis: achieved FLOPs per second
+      \end{itemize}
+    \item Two regimes:
+      \begin{itemize}
+        \item \textbf{Memory bound}: left of the intersection, limited by bandwidth
+        \item \textbf{Compute bound}: right of the intersection, limited by peak FLOPs
+      \end{itemize}
+    \item Typical placements:
+      \begin{itemize}
+        \item MatMul and Conv: higher intensity, closer to compute bound
+        \item Elementwise ops: low intensity, firmly in memory bound region
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\section{In application to OpenVINO...}
+\begin{frame}{OpenVINO Stack at a Glance}
+  \begin{itemize}
+    \item \textbf{Frontends}
+      \begin{itemize}
+        \item Import models from ONNX, TensorFlow, PyTorch and others
+      \end{itemize}
+    \item \textbf{Intermediate Representation IR}
+      \begin{itemize}
+        \item Framework agnostic computation graph
+        \item Nodes represent operations, edges represent tensors
+      \end{itemize}
+    \item \textbf{Transformations and optimizations}
+      \begin{itemize}
+        \item Graph rewrites, operator fusion, data layout changes
+      \end{itemize}
+    \item \textbf{Device plugins}
+      \begin{itemize}
+        \item CPU, GPU, NPU and other backends
+        \item Each provides kernel implementations for IR operations
+      \end{itemize}
+  \end{itemize}
+
+  \vspace{0.5em}
+  \centering
+  \small
+  ONNX TF PyTorch $\rightarrow$ IR graph $\rightarrow$ optimizations $\rightarrow$ device plugin kernels
+\end{frame}
+
+\begin{frame}{Intermediate Representation Example}
+  \begin{itemize}
+    \item IR represents models as a directed acyclic graph of operations
+    \item Example pattern in convolutional networks:
+      \begin{itemize}
+        \item Convolution
+        \item Batch normalization
+        \item ReLU or similar activation
+      \end{itemize}
+    \item In the IR:
+      \begin{itemize}
+        \item These may appear as separate nodes
+        \item Or be fused into a single compound operator by graph transformations
+      \end{itemize}
+    \item Important point for hardware:
+      \begin{itemize}
+        \item IR is hardware agnostic
+        \item Device plugins map each IR op or fused op to efficient kernels
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide 23 – Key optimizations
+\begin{frame}{Key OpenVINO Optimizations}
+  \begin{itemize}
+    \item \textbf{Operator fusion}
+      \begin{itemize}
+        \item Fuse Conv plus BatchNorm plus activation into one op
+        \item Reduce intermediate memory traffic
+      \end{itemize}
+    \item \textbf{Layout transformations}
+      \begin{itemize}
+        \item Convert between NCHW and NHWC or other layouts
+        \item Choose layouts that match the target hardware and kernels
+      \end{itemize}
+    \item \textbf{Quantization}
+      \begin{itemize}
+        \item Lower precision: FP32 to FP16 or INT8
+        \item Reduce memory footprint and increase throughput
+        \item Requires calibration or aware training for accuracy
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide 24 – Device plugins
+\begin{frame}{Device Plugins}
+  \begin{itemize}
+    \item OpenVINO has a pluggable backend architecture:
+      \begin{itemize}
+        \item CPU plugin
+        \item GPU plugin
+        \item Other accelerators and NPUs
+      \end{itemize}
+    \item Each plugin:
+      \begin{itemize}
+        \item Implements kernels for the IR operations it supports
+        \item May provide its own threading, vectorization and memory management strategies
+      \end{itemize}
+    \item For this project:
+      \begin{itemize}
+        \item RISC-V support is implemented as a \textbf{CPU plugin variant}
+        \item Same IR, different kernel implementations tuned for RISC-V and RVV
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{What a Kernel Looks Like MatMul Example}
+  \begin{itemize}
+    \item Conceptual structure of a MatMul kernel:
+  \end{itemize}
+  \vspace{0.25em}
+\begin{verbatim}
+for (int m = 0; m < M; ++m) {
+    for (int n = 0; n < N; ++n) {
+        float sum = 0.0f;
+        for (int k = 0; k < K; ++k) {
+            sum += A[m][k] * B[k][n];
+        }
+        C[m][n] = sum;
+    }
+}
+\end{verbatim}
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item Optimized kernels introduce:
+      \begin{itemize}
+        \item Tiling of M, N and K to fit caches
+        \item Vectorized inner loops using RVV
+        \item Carefully chosen data layouts for contiguous accesses
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Path from Model to RISC-V Instructions}
+  \begin{enumerate}
+    \item \textbf{Model to IR}
+      \begin{itemize}
+        \item Import model into OpenVINO
+        \item Obtain optimized IR with fused and transformed operations
+      \end{itemize}
+    \item \textbf{IR op to CPU plugin kernel}
+      \begin{itemize}
+        \item Each IR node is assigned to a kernel implementation in the RISC-V CPU plugin
+      \end{itemize}
+    \item \textbf{Kernel to machine code}
+      \begin{itemize}
+        \item Kernel sources compiled with appropriate RISC-V and RVV flags
+        \item Final binary contains scalar and vector instructions for the target core
+      \end{itemize}
+  \end{enumerate}
+\end{frame}
+
+% Slide 27 – Where RISC-V specifics matter
+\begin{frame}{Where RISC-V Specifics Matter}
+  \begin{itemize}
+    \item \textbf{Compiler configuration}
+      \begin{itemize}
+        \item ISA and ABI selection via \texttt{-march} and \texttt{-mabi}
+        \item RVV specific flags for vector extension and version
+      \end{itemize}
+    \item \textbf{Vectorization strategy}
+      \begin{itemize}
+        \item Auto vectorization by the compiler for simple loops
+        \item RVV intrinsics or inline assembly for critical kernels
+        \item Align data structures to vector friendly boundaries
+      \end{itemize}
+    \item \textbf{Multithreading}
+      \begin{itemize}
+        \item Use OpenMP or pthreads to parallelize across cores
+        \item Combine TLP at thread level with DLP via RVV inside each thread
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Example: MatMul on RISC-V}
+  \begin{itemize}
+    \item \textbf{Tiled structure}
+      \begin{itemize}
+        \item Outer loops iterate over tiles in M and N dimensions
+        \item Inner loops iterate over K dimension blocks
+      \end{itemize}
+    \item \textbf{Inner kernel}
+      \begin{itemize}
+        \item Load blocks of A and B into registers or L1 cache
+        \item Use RVV loads and fused multiply add instructions
+        \item Accumulate partial sums in vector registers
+      \end{itemize}
+    \item \textbf{Practical considerations}
+      \begin{itemize}
+        \item Choose tile sizes to match cache sizes and VLEN
+        \item Ensure contiguous memory access for both A and B where possible
+        \item Align matrices and leading dimensions to cache line and vector boundaries
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Example: Convolution on RISC-V}
+  \begin{itemize}
+    \item Two main implementation styles:
+      \begin{itemize}
+        \item \textbf{Direct convolution}
+          \begin{itemize}
+            \item Iterate over output feature maps and spatial positions
+            \item For each output, perform dot product with receptive field
+          \end{itemize}
+        \item \textbf{Im2col plus MatMul}
+          \begin{itemize}
+            \item Reshape input patches into a matrix
+            \item Map convolution to a large MatMul
+          \end{itemize}
+      \end{itemize}
+    \item Design choice depends on:
+      \begin{itemize}
+        \item Vector unit capabilities and preferred access patterns
+        \item Cache sizes and memory bandwidth
+        \item Overhead of im2col transformation vs benefits of reusing MatMul kernels
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Target RISC-V Platform}
+  \begin{itemize}
+    \item \textbf{RISC-V core type}
+      \begin{itemize}
+        \item Example: RV64GC with optional RVV extension
+        \item In order or out of order core depending on implementation
+      \end{itemize}
+    \item \textbf{Core count and clock}
+      \begin{itemize}
+        \item Number of CPU cores, e.g. 2 to 4
+        \item Clock frequency range, e.g. hundreds of MHz to low GHz
+      \end{itemize}
+    \item \textbf{Memory subsystem}
+      \begin{itemize}
+        \item Total RAM available on the board
+        \item L1 and L2 cache sizes if known
+      \end{itemize}
+    \item \textbf{High level SoC diagram}
+      \begin{itemize}
+        \item CPU cluster, shared cache, memory controller
+        \item Any attached accelerators or IO blocks
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide 31 – Software stack
+\begin{frame}{Software Stack}
+  \begin{itemize}
+    \item \textbf{Operating system and toolchain}
+      \begin{itemize}
+        \item Target OS, for example a Linux distribution for RISC-V
+        \item Compiler toolchain, for example GCC or Clang configured for RV64 and RVV
+      \end{itemize}
+    \item \textbf{OpenVINO}
+      \begin{itemize}
+        \item OpenVINO version used in the project
+        \item Build configuration for the RISC-V CPU plugin
+      \end{itemize}
+    \item \textbf{Supporting libraries}
+      \begin{itemize}
+        \item BLAS or GEMM library if used as a baseline
+        \item OpenMP runtime or threading library
+        \item Any board specific SDKs or drivers
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide 32 – Optimization focus
+\begin{frame}{Optimization Focus}
+  \begin{itemize}
+    \item \textbf{Targeted operations}
+      \begin{itemize}
+        \item MatMul kernels in attention or fully connected layers
+        \item Conv2D kernels in convolutional networks
+        \item Selected elementwise operations and softmax
+      \end{itemize}
+    \item \textbf{Planned techniques}
+      \begin{itemize}
+        \item Improved tiling and blocking tuned to cache and VLEN
+        \item RVV intrinsics for inner loops where auto vectorization is insufficient
+        \item Multithreading across cores using OpenMP or similar
+        \item Quantization to FP16 or INT8 when supported by the stack
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide 33 – Metrics & evaluation
+\begin{frame}{Metrics and Evaluation}
+  \begin{itemize}
+    \item \textbf{Performance metrics}
+      \begin{itemize}
+        \item Latency per inference or per batch
+        \item Throughput in inferences per second
+        \item CPU utilization and vector unit utilization if observable
+      \end{itemize}
+    \item \textbf{Energy and power} where tools are available:
+      \begin{itemize}
+        \item Average power during inference
+        \item Energy per inference
+      \end{itemize}
+    \item \textbf{Baseline vs optimized}
+      \begin{itemize}
+        \item Start from a straightforward CPU plugin configuration
+        \item Measure incremental improvements from each optimization step
+        \item Document trade offs in accuracy if quantization is applied
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{What is a Toolchain?}
+  \begin{itemize}
+    \item \textbf{Toolchain} = set of development tools that turn source code into binaries.
+    \item Typical components:
+      \begin{itemize}
+        \item Compiler (e.g. GCC): C/C++ $\rightarrow$ assembly.
+        \item Assembler: assembly $\rightarrow$ object files.
+        \item Linker: combines object files and libraries into an executable.
+        \item Runtime libraries (C standard library, start-up code, etc.).
+        \item Debugger and utilities (e.g. GDB, objdump, nm, size).
+      \end{itemize}
+    \item For RISC-V and Xuantie:
+      \begin{itemize}
+        \item Cross-toolchain runs on an x86\_64 PC.
+        \item Generates binaries that run on Xuantie RISC-V CPUs.
+        \item Supports both bare-metal (no OS) and Linux targets.
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide X2 – Xuantie RISC-V toolchain: overview
+\begin{frame}[fragile]{Xuantie RISC-V Toolchain: Overview}
+  \begin{itemize}
+    \item \textbf{Name:} XuanTie / T-HEAD GNU Compiler Toolchain for RISC-V.
+    \item \textbf{What it is:}
+      \begin{itemize}
+        \item Vendor-tuned GNU-based toolchain for Xuantie RISC-V cores.
+        \item Derived from upstream \verb|riscv-gnu-toolchain|, with Xuantie-specific patches.
+        \item Supports both ELF/Newlib (bare-metal) and Linux-ELF/glibc targets.
+      \end{itemize}
+    \item \textbf{Why it exists:}
+      \begin{itemize}
+        \item Provide production-grade compiler support for Xuantie CPUs (E9xx, C9xx series, etc.).
+        \item Expose vendor extensions (XThead) and optimized instruction selection.
+        \item Enable ecosystem: Linux distros, Android, SDKs and boards using Xuantie.
+      \end{itemize}
+    \item \textbf{Where it lives:}
+      \begin{itemize}
+        \item Public Git repositories (GitHub) under Xuantie/T-Head orgs.
+        \item Prebuilt archives on vendor/Open Chip Community download sites.
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide X3 – Owner and history
+\begin{frame}{Xuantie Toolchain: Owner \& History}
+  \begin{itemize}
+    \item \textbf{Owner / maintainer:}
+      \begin{itemize}
+        \item Developed and maintained by the Xuantie (XuanTie) team at T-Head.
+        \item T-Head is the semiconductor business of Alibaba Group, focused on CPUs/SoCs.
+      \end{itemize}
+    \item \textbf{Background:}
+      \begin{itemize}
+        \item Xuantie cores (E902, E906, C906, C910, etc.) are commercial RISC-V implementations.
+        \item Around 2021 T-Head began open-sourcing RTL and related software/tools for these cores.
+        \item Vendor toolchain evolved from upstream GNU RISC-V toolchains plus Xuantie extensions.
+      \end{itemize}
+    \item \textbf{Recent evolution:}
+      \begin{itemize}
+        \item Support for vector extension versions used by Xuantie cores.
+        \item Collaborations with open-source labs and board vendors to ship ready-to-use toolchains.
+        \item Continuous updates to support new ISA features and Linux distributions.
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide X4 – What this toolchain contains
+\begin{frame}[fragile]{What the Xuantie Toolchain Contains}
+  \begin{itemize}
+    \item \textbf{Compiler front-end:}
+      \begin{itemize}
+        \item GCC (C/C++), configured for Xuantie RISC-V targets.
+        \item Extra ISA support for Xuantie-specific extensions (XThead series).
+      \end{itemize}
+    \item \textbf{Binary utilities (Binutils):}
+      \begin{itemize}
+        \item Assembler \verb|riscv64-xxx-as|.
+        \item Linker \verb|riscv64-xxx-ld|.
+        \item Tools: \verb|objdump|, \verb|objcopy|, \verb|nm|, \verb|readelf|, \verb|size|, etc.
+      \end{itemize}
+    \item \textbf{C libraries and headers:}
+      \begin{itemize}
+        \item Newlib for bare-metal embedded targets (no OS).
+        \item glibc for Linux user-space.
+        \item RISC-V and Xuantie-specific headers, Linux kernel headers for Linux builds.
+      \end{itemize}
+    \item \textbf{Debugger and tests:}
+      \begin{itemize}
+        \item GDB for Xuantie RISC-V.
+        \item DejaGNU/regression tests for toolchain validation.
+      \end{itemize}
+    \item \textbf{Multiple targets:}
+      \begin{itemize}
+        \item Bare-metal: \verb|riscv64-unknown-elf-*| tools.
+        \item Linux: \verb|riscv64-unknown-linux-gnu-*| tools.
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+% Slide X5 – How to build Xuantie GNU toolchain
+\begin{frame}[fragile]{Building the Xuantie GNU Toolchain}
+  \begin{itemize}
+    \item \textbf{1. Get the sources}
+  \end{itemize}
+\begin{verbatim}
+$ git clone https://github.com/XUANTIE-RV/xuantie-gnu-toolchain
+$ cd xuantie-gnu-toolchain
+\end{verbatim}
+
+  \begin{itemize}
+    \item \textbf{2. Install prerequisites}
+      \begin{itemize}
+        \item Standard build tools (make, gcc/g++, autoconf, automake, etc.).
+        \item Libraries: GMP, MPFR, MPC, zlib, expat, etc.
+        \item On Ubuntu/Debian: install via \verb|apt-get|; on Fedora: via \verb|dnf| (see README or board docs for exact list).
+      \end{itemize}
+    \item \textbf{3. Configure (choose install prefix and ISA)}
+  \end{itemize}
+\begin{verbatim}
+# Example: 64-bit Xuantie Linux toolchain under /opt/riscv
+$ ./configure --prefix=/opt/riscv \
+    --with-arch=rv64gc_xthead... \
+    --with-abi=lp64d
+\end{verbatim}
+
+  \begin{itemize}
+    \item \textbf{4. Build}
+  \end{itemize}
+\begin{verbatim}
+# Newlib (bare-metal) toolchain:
+$ make -j$(nproc)
+
+# Linux glibc toolchain:
+$ make linux -j$(nproc)
+\end{verbatim}
+
+  \begin{itemize}
+    \item \textbf{5. Check installation}
+  \end{itemize}
+\begin{verbatim}
+$ /opt/riscv/bin/riscv64-xxx-gcc -v
+\end{verbatim}
+\end{frame}
+
+% Slide X6 – How to use the Xuantie toolchain
+\begin{frame}[fragile]{Using the Xuantie RISC-V Toolchain}
+  \begin{itemize}
+    \item \textbf{1. Add toolchain to PATH}
+  \end{itemize}
+\begin{verbatim}
+$ export PATH=/opt/riscv/bin:$PATH
+\end{verbatim}
+
+  \begin{itemize}
+    \item \textbf{2. Identify the triplet}
+      \begin{itemize}
+        \item Bare-metal: \verb|riscv64-unknown-elf-gcc|.
+        \item Linux: \verb|riscv64-unknown-linux-gnu-gcc|.
+      \end{itemize}
+    \item \textbf{3. Compile a simple program}
+  \end{itemize}
+\begin{verbatim}
+$ cat hello.c
+#include <stdio.h>
+int main(void) {
+    printf("Hello Xuantie!\n");
+    return 0;
+}
+
+# Bare-metal example (no OS):
+$ riscv64-unknown-elf-gcc -O2 -march=rv64gc_xthead... \
+    -mabi=lp64d -o hello.elf hello.c
+
+# Linux user-space example:
+$ riscv64-unknown-linux-gnu-gcc -O2 -march=rv64gc_xthead... \
+    -mabi=lp64d -o hello hello.c
+\end{verbatim}
+
+  \begin{itemize}
+    \item \textbf{4. Typical options}
+      \begin{itemize}
+        \item \verb|-march=|: select base ISA and Xuantie/XThead extensions.
+        \item \verb|-mabi=|: select ABI (e.g. \verb|lp64d|, \verb|ilp32d|).
+        \item \verb|-O2| / \verb|-O3| / \verb|-Ofast|: performance optimizations.
+        \item Linker script and startup code for bare-metal firmware.
+      \end{itemize}
+    \item \textbf{5. Debugging}
+      \begin{itemize}
+        \item Use \verb|riscv64-xxx-gdb| against your ELF binary.
+        \item Connect via JTAG, on-board debug probe, or QEMU depending on platform.
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \centering
+    \Huge{Thank You!}
+\end{frame}
+
+\begin{frame}{References}
+\end{frame}
+
+\end{document}
